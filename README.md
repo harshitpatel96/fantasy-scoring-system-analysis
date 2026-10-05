@@ -16,16 +16,38 @@ js/skaters.js         skater scoring, charts and tables
 data/seasons.json     seasons shown in the selector, e.g. [{"season": 2025, "label": "2025-26"}]
 data/<season>/goalies.json
 data/<season>/skaters.json
+pipeline/build_data.py   downloads MoneyPuck data and writes data/<season>/*.json
+pipeline/compare.py      compares a fresh build against committed data
+.github/workflows/       monthly data refresh + a pipeline check on pull requests
 ```
 
 `<season>` is the year the season starts (MoneyPuck's convention), so `2025` is 2025-26.
 Data for a season is fetched only when that season and tab are viewed.
 
-## Adding a season
+## Data updates
 
-1. Add `data/<season>/goalies.json` and `data/<season>/skaters.json` in the same row format as
-   the existing 2025 files.
-2. Add an entry for it to `data/seasons.json`. The newest season is selected by default.
+The **Refresh MoneyPuck data** workflow runs on the 2nd of every month. It downloads MoneyPuck's
+per-team game-by-game files
+(`https://moneypuck.com/moneypuck/playerData/teamPlayerGameByGame/<season>/regular/{goalies,skaters}/<TEAM>.csv`),
+rebuilds the current season plus any season not yet in `data/` (back to 2008-09), regenerates
+`data/seasons.json`, and commits the result. GitHub Pages republishes on that commit.
+
+To run it by hand: **Actions → Refresh MoneyPuck data → Run workflow**, with `seasons` set to
+`auto`, `current`, `all`, or specific start years such as `2023,2024`.
+
+Locally (Python 3, no dependencies):
+
+```
+python3 pipeline/build_data.py --seasons 2025
+```
+
+Fields the export doesn't contain directly are derived:
+
+- **Goalie wins:** a team's goals against (summed over its goalies) is the opponent's score, so
+  comparing the two totals gives the winner. Equal totals mean a shootout, which this data can't
+  resolve, so those games are "no decision".
+- **Skater +/−:** 5-on-5 on-ice goals for minus against.
+- **PPP / SHP:** points in the 5-on-4 / 4-on-5 situations.
 
 ## Running locally
 

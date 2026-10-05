@@ -1,0 +1,44 @@
+name: Refresh MoneyPuck data
+
+on:
+  schedule:
+    - cron: "23 9 2 * *" # 09:23 UTC on the 2nd of every month
+  workflow_dispatch:
+    inputs:
+      seasons:
+        description: "auto (current + missing seasons), current, all, or comma-separated start years like 2023,2024"
+        default: auto
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240 # the first run backfills every season since 2008-09
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build season data
+        run: python pipeline/build_data.py --seasons "${{ inputs.seasons || 'auto' }}"
+
+      - name: Commit changes
+        run: |
+          git add data
+          if git diff --cached --quiet; then
+            echo "No data changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Refresh MoneyPuck data ($(date -u +%Y-%m-%d))"
+          git push
