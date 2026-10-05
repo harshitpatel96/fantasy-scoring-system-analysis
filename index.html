@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NHL Fantasy Scoring Lab</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#121821; --panel2:#161d29; --line:#232b38;
+    --ink:#e8edf4; --ink-dim:#9aa7b8; --accent:#4fd1c5; --accent2:#f6ad55;
+    --q1:#4fd1c5; --q2:#63b3ed; --q3:#718096; --q4:#f56565;
+    --pos:#4fd1c5; --neg:#f56565;
+  }
+  @media (prefers-color-scheme: light){
+    :root:not([data-theme="dark"]){
+      --bg:#f5f7fa; --panel:#ffffff; --panel2:#eef1f6; --line:#dbe1ea;
+      --ink:#171d26; --ink-dim:#5b6675;
+    }
+  }
+  :root[data-theme="dark"]{ --bg:#0b0f14; --panel:#121821; }
+  *{box-sizing:border-box;}
+  html{scroll-padding-top:env(safe-area-inset-top,0px);}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:28px 20px 60px;}
+  h1{font-size:1.5rem; margin:0 0 4px; letter-spacing:-0.01em;}
+  .sub{color:var(--ink-dim); font-size:0.92rem; margin-bottom:22px;}
+  .formula-card{
+    background:linear-gradient(135deg,var(--panel),var(--panel2));
+    border:1px solid var(--line); border-radius:14px; padding:20px 24px; margin-bottom:20px;
+  }
+  .formula{
+    font-family:'SF Mono',Consolas,Monaco,monospace; font-size:1.25rem; font-weight:600;
+    color:var(--accent); letter-spacing:0.01em; margin-bottom:10px;
+  }
+  .formula-explain{color:var(--ink-dim); font-size:0.9rem; line-height:1.55;}
+  .formula-explain b{color:var(--ink); font-weight:600;}
+  .note{
+    background:rgba(246,173,85,0.1); border:1px solid rgba(246,173,85,0.35);
+    border-radius:10px; padding:10px 14px; font-size:0.85rem; color:var(--accent2);
+    margin-top:12px;
+  }
+  .panel{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:18px 22px; margin-bottom:20px;
+  }
+  .panel h2{font-size:1rem; margin:0 0 14px; color:var(--ink);}
+  .config-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:14px;}
+  .config-item label{display:block; font-size:0.75rem; color:var(--ink-dim); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.04em;}
+  .config-item input[type=number]{
+    width:100%; background:var(--panel2); border:1px solid var(--line); border-radius:8px;
+    color:var(--ink); padding:8px 10px; font-size:0.95rem; font-family:inherit;
+  }
+  .config-item input[type=number]:disabled{opacity:0.4;}
+  .config-item input[type=range]{
+    width:100%; margin-top:8px; accent-color:var(--accent); height:4px; cursor:pointer;
+  }
+  .config-item input[type=range]:disabled{opacity:0.3; cursor:default;}
+  .config-item .hint{font-size:0.7rem; color:var(--ink-dim); margin-top:4px;}
+  .reset-btn{
+    margin-top:14px; background:var(--panel2); border:1px solid var(--line); color:var(--ink);
+    padding:8px 16px; border-radius:8px; font-size:0.82rem; cursor:pointer;
+  }
+  .reset-btn:hover{border-color:var(--accent);}
+  .stats-row{display:flex; gap:18px; flex-wrap:wrap; margin-bottom:14px; font-size:0.82rem; color:var(--ink-dim);}
+  .stats-row b{color:var(--ink); font-weight:600;}
+  .controls-row{display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin-bottom:12px;}
+  .controls-row select, .controls-row input[type=text]{
+    background:var(--panel2); border:1px solid var(--line); color:var(--ink);
+    padding:7px 10px; border-radius:8px; font-size:0.85rem; font-family:inherit;
+  }
+  .controls-row label{font-size:0.78rem; color:var(--ink-dim);}
+  #chart-wrap{position:relative; width:100%; overflow-x:auto;}
+  svg{display:block;}
+  .dot{cursor:pointer; transition:opacity .1s;}
+  .dot:hover{stroke:var(--ink); stroke-width:1.5px;}
+  .quad-label{font-size:12px; fill:var(--ink-dim); font-weight:600; letter-spacing:0.03em;}
+  .median-line{stroke:var(--ink-dim); stroke-dasharray:4,4; stroke-opacity:0.5;}
+  .axis text{fill:var(--ink-dim); font-size:11px;}
+  .axis path, .axis line{stroke:var(--line);}
+  .axis-title{fill:var(--ink-dim); font-size:12px; font-weight:600;}
+  #tooltip{
+    position:fixed; pointer-events:none; background:var(--panel2); border:1px solid var(--line);
+    border-radius:10px; padding:10px 14px; font-size:0.8rem; line-height:1.5; color:var(--ink);
+    box-shadow:0 8px 24px rgba(0,0,0,0.35); opacity:0; transition:opacity .1s; z-index:50; max-width:240px;
+  }
+  #tooltip .t-name{font-weight:700; font-size:0.88rem; margin-bottom:4px; color:var(--accent);}
+  #tooltip .t-row{display:flex; justify-content:space-between; gap:14px;}
+  #tooltip .t-row span:last-child{color:var(--ink);}
+  table{width:100%; border-collapse:collapse; font-size:0.85rem;}
+  th,td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--line);}
+  th{color:var(--ink-dim); font-weight:600; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.03em;}
+  td.num{text-align:right; font-variant-numeric:tabular-nums;}
+  .fp-pos{color:var(--pos); font-weight:600;}
+  .fp-neg{color:var(--neg); font-weight:600;}
+  .simplify{
+    font-family:'SF Mono',Consolas,Monaco,monospace; background:var(--panel2); border-radius:10px;
+    padding:14px 18px; font-size:0.92rem; margin-top:10px; line-height:1.8;
+  }
+  .search-hits{max-height:200px; overflow-y:auto; margin-top:8px; font-size:0.8rem;}
+  footer{color:var(--ink-dim); font-size:0.75rem; text-align:center; margin-top:30px;}
+  a{color:var(--accent);}
+  .topnav{
+    position:sticky; top:0; z-index:40; background:var(--bg); border-bottom:1px solid var(--line);
+    padding-top:env(safe-area-inset-top,0px);
+  }
+  .topnav-inner{max-width:1180px; margin:0 auto; padding:12px 20px; display:flex; align-items:center; gap:22px;}
+  .topnav .site-title{font-weight:700; font-size:0.95rem; margin-right:auto;}
+  .topnav a.tab{
+    color:var(--ink-dim); text-decoration:none; font-size:0.88rem; font-weight:600; padding:6px 2px;
+    border-bottom:2px solid transparent;
+  }
+  .topnav a.tab.active{color:var(--ink); border-bottom-color:var(--accent);}
+  .page[hidden]{display:none;}
+  .season-picker{font-size:0.8rem; color:var(--ink-dim); display:flex; align-items:center; gap:6px;}
+  .season-picker select{
+    background:var(--panel2); border:1px solid var(--line); color:var(--ink);
+    padding:5px 8px; border-radius:8px; font-size:0.85rem; font-family:inherit;
+  }
+  #loading{
+    max-width:1180px; margin:12px auto 0; padding:10px 14px; font-size:0.85rem; color:var(--ink-dim);
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+  }
+  @media (max-width:560px){
+    .topnav-inner{flex-wrap:wrap; gap:12px 18px;}
+    .topnav .site-title{width:100%;}
+  }
+  .legend-swatch{display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; vertical-align:middle;}
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="topnav-inner">
+  <span class="site-title">🏒 NHL Fantasy Scoring Lab</span>
+  <label class="season-picker">Season <select id="season-select" aria-label="Season"></select></label>
+  <a href="#goalies" class="tab" data-page="goalies">Goalies</a>
+  <a href="#skaters" class="tab" data-page="skaters">Skaters</a>
+</div></nav>
+<div id="loading" role="status" hidden></div>
+<section id="page-goalies" class="page">
+<div class="wrap">
+  <h1>NHL Goalie Fantasy Scoring — <span class="season-label"></span></h1>
+  <div class="sub">Game-by-game goalie workload vs. fantasy score, built from MoneyPuck data. Each dot is one goalie-game.</div>
+
+  <div class="formula-card">
+    <div class="formula" id="formula-display">FP = Saves − Goals Against + 10 × Shutout + 2 × Win</div>
+    <div class="formula-explain">
+      Every <b>save</b> is worth +1 point. Every <b>goal allowed</b> costs −1 point. A <b>shutout</b> (0 goals against) adds a +10 bonus.
+      A <b>win</b> adds a small +2 bonus. Simply <b>starting</b> a game is worth 0 points on its own — a goalie can be pulled minutes
+      into a start due to injury or a blowout, so a start by itself says nothing about performance. The scoring is built around
+      workload and stops-per-shot, not the scoreline your team handed you.
+    </div>
+    <div class="note" id="win-note">ℹ Win/loss isn't in the MoneyPuck export, so it's <b>derived</b>: each team's goals-against total (summed across any goalies used that game) equals the opponent's goals scored, so comparing the two teams' totals for a <code>gameId</code> gives the winner without needing an external result feed. Games where both teams show equal goals went to a <b>shootout</b> — the shot-by-shot result isn't in this data, so those are marked "no decision" and score 0 win bonus either way.</div>
+  </div>
+
+  <div class="panel">
+    <h2>Scoring System A — edit and the chart recalculates live</h2>
+    <div class="config-grid">
+      <div class="config-item">
+        <label>Points per save</label>
+        <input type="number" id="cfg-save" value="1" step="0.5">
+        <input type="range" id="cfg-save-slider" min="-10" max="10" step="0.1" value="1">
+      </div>
+      <div class="config-item">
+        <label>Points per goal against</label>
+        <input type="number" id="cfg-ga" value="-1" step="0.5">
+        <input type="range" id="cfg-ga-slider" min="-10" max="10" step="0.1" value="-1">
+      </div>
+      <div class="config-item">
+        <label>Shutout bonus</label>
+        <input type="number" id="cfg-shutout" value="10" step="1">
+        <input type="range" id="cfg-shutout-slider" min="-10" max="10" step="0.5" value="10" title="value exceeds slider range">
+      </div>
+      <div class="config-item">
+        <label>Win bonus</label>
+        <input type="number" id="cfg-win" value="2" step="1">
+        <input type="range" id="cfg-win-slider" min="-10" max="10" step="0.5" value="2">
+        <div class="hint">now applied — win derived from team goal totals (see note above)</div>
+      </div>
+      <div class="config-item">
+        <label>Quadrant split</label>
+        <select id="cfg-quad">
+          <option value="median" selected>Median (saves & FP)</option>
+          <option value="mean">Mean (saves & FP)</option>
+        </select>
+      </div>
+    </div>
+    <button class="reset-btn" id="reset-btn">Reset to default (1 / −1 / +10 / +2)</button>
+
+    <h2 style="margin-top:20px;">Scoring System B — edit and the chart recalculates live</h2>
+    <div class="config-grid">
+      <div class="config-item">
+        <label>Points per save</label>
+        <input type="number" id="old-save" value="0.7" step="0.1">
+        <input type="range" id="old-save-slider" min="-10" max="10" step="0.1" value="0.7">
+      </div>
+      <div class="config-item">
+        <label>Points per goal against</label>
+        <input type="number" id="old-ga" value="-4" step="0.5">
+        <input type="range" id="old-ga-slider" min="-10" max="10" step="0.1" value="-4">
+      </div>
+      <div class="config-item">
+        <label>Shutout bonus</label>
+        <input type="number" id="old-shutout" value="0" step="1">
+        <input type="range" id="old-shutout-slider" min="-10" max="10" step="0.5" value="0">
+      </div>
+      <div class="config-item">
+        <label>Win bonus</label>
+        <input type="number" id="old-win" value="2" step="1">
+        <input type="range" id="old-win-slider" min="-10" max="10" step="0.5" value="2">
+        <div class="hint">now applied — same derived win data as System A</div>
+      </div>
+    </div>
+    <button class="reset-btn" id="old-reset-btn">Reset System B to default (0.7 / −4 / 0 / +2)</button>
+  </div>
+
+  <div class="panel">
+    <div class="controls-row">
+      <label>Filter team:
+        <select id="filter-team"><option value="">All teams</option></select>
+      </label>
+      <label>Filter goalie:
+        <input type="text" id="filter-name" placeholder="type a name…">
+      </label>
+      <label><input type="checkbox" id="filter-shutout" style="margin-right:6px;">Shutouts only</label>
+    </div>
+    <div class="stats-row" id="stats-row"></div>
+    <div id="chart-wrap"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Why this formula, not "wins"</h2>
+    <div class="formula-explain">
+      The goal is to reward a goalie's actual workload and stop rate, not the team in front of him. Under this system,
+      <b>18 saves, 1 GA, win</b> scores <b>17 + 2 = 19</b>, while <b>35 saves, 2 GA, loss</b> scores <b>33</b> — the busier,
+      better-performing goalie wins the comparison even though his team lost. Wins still count for something (+2), but they can't
+      dominate the score the way they do in most standard scoring systems.
+    </div>
+    <table style="margin-top:16px;">
+      <thead><tr><th>Line</th><th class="num">Saves</th><th class="num">GA</th><th class="num">Shutout</th><th class="num">FP (A)</th><th class="num">FP (B)</th></tr></thead>
+      <tbody id="example-table"></tbody>
+    </table>
+    <div class="simplify" id="simplify-block"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Scoring System A vs. System B — where they disagree</h2>
+    <div class="formula-explain">
+      System B: <b id="old-formula-display">0.7 × Saves − 4 × Goals Against</b> — editable in the panel above, win bonus included when set.
+      Its default −4-per-goal penalty dominates the score, so it punishes a goalie for playing
+      behind a bad defense far more harshly than it rewards him for facing a lot of shots. System A's default −1-per-goal weight
+      lets high-workload, high-save performances score well even with several goals against. Each axis below is this game's
+      <b>percentile rank</b> within its own system (0 = worst game of the season, 100 = best), so the two systems are compared
+      on equal footing regardless of their different raw scales. Dots on the diagonal agree; dots far off it are games the two
+      systems rank very differently.
+    </div>
+    <div class="stats-row" id="compare-stats"></div>
+    <div id="compare-chart-wrap"></div>
+    <h2 style="margin-top:20px;">Biggest disagreements</h2>
+    <div class="formula-explain" style="margin-bottom:10px;">Games where the two systems rank the same performance most differently.</div>
+    <table>
+      <thead><tr><th>Goalie</th><th>Date</th><th class="num">Saves</th><th class="num">GA</th><th class="num">FP (A)</th><th class="num">FP (B)</th><th class="num">Rank gap</th></tr></thead>
+      <tbody id="divergence-table"></tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h2>Save % vs. Fantasy Points — Systems A and B overlaid</h2>
+    <div class="formula-explain">
+      Same set of goalie-games, plotted twice: once at its <b style="color:var(--accent)">System A</b> fantasy score and once at
+      its <b style="color:var(--accent2)">System B</b> score, both against that game's save percentage on the vertical axis.
+      A tight, upward-sloping cloud means the system tracks raw stopping ability well; a wide or flat cloud means other factors
+      (workload, shutouts, the GA penalty size) are pulling the score away from save %.
+    </div>
+    <div class="controls-row" style="margin-top:10px;">
+      <label><input type="checkbox" id="svpct-show-new" checked style="margin-right:6px;">Show System A</label>
+      <label><input type="checkbox" id="svpct-show-old" checked style="margin-right:6px;">Show System B</label>
+    </div>
+    <div id="svpct-chart-wrap"></div>
+  </div>
+
+  <footer>Source: MoneyPuck game logs, <span class="season-label"></span> season, situation = "all". <span id="row-count"></span> goalie-games. Data courtesy of <a href="https://moneypuck.com" target="_blank" rel="noopener">MoneyPuck.com</a>.</footer>
+</div>
+</section>
+
+<div id="tooltip"></div>
+
+
+<section id="page-skaters" class="page" hidden>
+<div class="wrap">
+  <h1>NHL Skater Fantasy Scoring — <span class="season-label"></span></h1>
+  <div class="sub">Game-by-game skater production vs. fantasy score, built from MoneyPuck data. Each dot is one skater-game.</div>
+
+  <div class="formula-card">
+    <div class="formula" id="sk-formula-a">FP = 6×G + 4×A + 2×(+/−) + 2×PPP + 0.9×SOG + 1×BLK</div>
+    <div class="formula-explain">
+      Both scoring systems below default to Yahoo Fantasy Hockey's own published defaults: System A is Yahoo's
+      <b>Head-to-Head Points</b> default (Goals, Assists, +/−, PPP, SOG, Blocks), System B is Yahoo's <b>Season Points</b>
+      default (Goals, Assists, +/−, PIM, PPP, SOG). Every weight is editable with a −10 to 10 slider, same as the goalie page.
+      <b>Game-Winning Goal</b> is a Yahoo category but isn't computable here — this per-game aggregated data has no goal-by-goal
+      sequencing, so it's locked at 0 on both systems rather than guessed. <b>Plus/minus</b> is approximated from 5-on-5 on-ice
+      goals for vs. against (excludes true 4-on-4/3-on-3, which this export lumps into an "other" bucket).
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Scoring System A — Yahoo H2H Points default</h2>
+    <div class="config-grid">
+      <div class="config-item"><label>Goal</label><input type="number" id="ska-g" value="6" step="0.5"><input type="range" id="ska-g-s" min="-10" max="10" step="0.1" value="6"></div>
+      <div class="config-item"><label>Assist</label><input type="number" id="ska-a" value="4" step="0.5"><input type="range" id="ska-a-s" min="-10" max="10" step="0.1" value="4"></div>
+      <div class="config-item"><label>Plus/minus</label><input type="number" id="ska-pm" value="2" step="0.5"><input type="range" id="ska-pm-s" min="-10" max="10" step="0.1" value="2"></div>
+      <div class="config-item"><label>PIM</label><input type="number" id="ska-pim" value="0" step="0.5"><input type="range" id="ska-pim-s" min="-10" max="10" step="0.1" value="0"></div>
+      <div class="config-item"><label>Power-play pts</label><input type="number" id="ska-ppp" value="2" step="0.5"><input type="range" id="ska-ppp-s" min="-10" max="10" step="0.1" value="2"></div>
+      <div class="config-item"><label>Shorthanded pts</label><input type="number" id="ska-shp" value="0" step="0.5"><input type="range" id="ska-shp-s" min="-10" max="10" step="0.1" value="0"></div>
+      <div class="config-item"><label>Shots on goal</label><input type="number" id="ska-sog" value="0.9" step="0.1"><input type="range" id="ska-sog-s" min="-10" max="10" step="0.1" value="0.9"></div>
+      <div class="config-item"><label>Hits</label><input type="number" id="ska-hit" value="0" step="0.1"><input type="range" id="ska-hit-s" min="-10" max="10" step="0.1" value="0"></div>
+      <div class="config-item"><label>Blocks</label><input type="number" id="ska-blk" value="1" step="0.5"><input type="range" id="ska-blk-s" min="-10" max="10" step="0.1" value="1"></div>
+      <div class="config-item"><label>Faceoffs won</label><input type="number" id="ska-fow" value="0" step="0.1"><input type="range" id="ska-fow-s" min="-10" max="10" step="0.1" value="0"></div>
+      <div class="config-item"><label>Game-winning goal</label><input type="number" id="ska-gwg" value="0" step="1" disabled><input type="range" id="ska-gwg-s" min="-10" max="10" step="1" value="0" disabled><div class="hint">locked — not computable from per-game data</div></div>
+    </div>
+    <button class="reset-btn" id="ska-reset">Reset to Yahoo H2H Points default</button>
+
+    <h2 style="margin-top:20px;">Scoring System B — Yahoo Season Points default</h2>
+    <div class="config-grid">
+      <div class="config-item"><label>Goal</label><input type="number" id="skb-g" value="3" step="0.5"><input type="range" id="skb-g-s" min="-10" max="10" step="0.1" value="3"></div>
+      <div class="config-item"><label>Assist</label><input type="number" id="skb-a" value="2" step="0.5"><input type="range" id="skb-a-s" min="-10" max="10" step="0.1" value="2"></div>
+      <div class="config-item"><label>Plus/minus</label><input type="number" id="skb-pm" value="1" step="0.5"><input type="range" id="skb-pm-s" min="-10" max="10" step="0.1" value="1"></div>
+      <div class="config-item"><label>PIM</label><input type="number" id="skb-pim" value="0.5" step="0.1"><input type="range" id="skb-pim-s" min="-10" max="10" step="0.1" value="0.5"></div>
+      <div class="config-item"><label>Power-play pts</label><input type="number" id="skb-ppp" value="1" step="0.5"><input type="range" id="skb-ppp-s" min="-10" max="10" step="0.1" value="1"></div>
+      <div class="config-item"><label>Shorthanded pts</label><input type="number" id="skb-shp" value="0" step="0.5"><input type="range" id="skb-shp-s" min="-10" max="10" step="0.1" value="0"></div>
+      <div class="config-item"><label>Shots on goal</label><input type="number" id="skb-sog" value="0.4" step="0.1"><input type="range" id="skb-sog-s" min="-10" max="10" step="0.1" value="0.4"></div>
+      <div class="config-item"><label>Hits</label><input type="number" id="skb-hit" value="0" step="0.1"><input type="range" id="skb-hit-s" min="-10" max="10" step="0.1" value="0"></div>
+      <div class="config-item"><label>Blocks</label><input type="number" id="skb-blk" value="0" step="0.5"><input type="range" id="skb-blk-s" min="-10" max="10" step="0.1" value="0"></div>
+      <div class="config-item"><label>Faceoffs won</label><input type="number" id="skb-fow" value="0" step="0.1"><input type="range" id="skb-fow-s" min="-10" max="10" step="0.1" value="0"></div>
+      <div class="config-item"><label>Game-winning goal</label><input type="number" id="skb-gwg" value="0" step="1" disabled><input type="range" id="skb-gwg-s" min="-10" max="10" step="1" value="0" disabled><div class="hint">locked — not computable from per-game data</div></div>
+    </div>
+    <button class="reset-btn" id="skb-reset">Reset to Yahoo Season Points default</button>
+  </div>
+
+  <div class="panel">
+    <div class="controls-row">
+      <label>Filter team:<select id="sk-filter-team"><option value="">All teams</option></select></label>
+      <label>Filter position:
+        <select id="sk-filter-pos">
+          <option value="">All positions</option>
+          <option value="C">Center</option><option value="L">Left wing</option>
+          <option value="R">Right wing</option><option value="D">Defense</option>
+        </select>
+      </label>
+      <label>Filter player:<input type="text" id="sk-filter-name" placeholder="type a name…"></label>
+      <label>Chart uses:
+        <select id="sk-chart-system"><option value="a" selected>System A</option><option value="b">System B</option></select>
+      </label>
+    </div>
+    <div class="stats-row" id="sk-stats-row"></div>
+    <div id="sk-chart-wrap"></div>
+    <div class="hint" style="margin-top:6px;">Rendered on canvas (<span id="sk-canvas-count"></span> skater-games) — hover near a point for details.</div>
+  </div>
+
+  <div class="panel">
+    <h2>Example stat lines</h2>
+    <table>
+      <thead><tr><th>Line</th><th class="num">FP (A)</th><th class="num">FP (B)</th></tr></thead>
+      <tbody id="sk-example-table"></tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h2>Scoring System A vs. System B — where they disagree</h2>
+    <div class="formula-explain">
+      Each axis is this game's <b>percentile rank</b> within its own system (0 = worst skater-game of the season, 100 = best),
+      so the two systems are compared on equal footing despite their different raw scales and category weights.
+    </div>
+    <div class="stats-row" id="sk-compare-stats"></div>
+    <div id="sk-compare-chart-wrap"></div>
+    <h2 style="margin-top:20px;">Biggest disagreements</h2>
+    <table>
+      <thead><tr><th>Player</th><th>Date</th><th class="num">G</th><th class="num">A</th><th class="num">FP (A)</th><th class="num">FP (B)</th><th class="num">Rank gap</th></tr></thead>
+      <tbody id="sk-divergence-table"></tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h2>Shooting % vs. Fantasy Points — Systems A and B overlaid</h2>
+    <div class="formula-explain">Shooting % = Goals / Shots on Goal for that game (games with 0 SOG excluded). Plotted against fantasy score under each system.</div>
+    <div class="controls-row" style="margin-top:10px;">
+      <label><input type="checkbox" id="sk-eff-show-a" checked style="margin-right:6px;">Show System A</label>
+      <label><input type="checkbox" id="sk-eff-show-b" checked style="margin-right:6px;">Show System B</label>
+    </div>
+    <div id="sk-eff-chart-wrap"></div>
+  </div>
+
+  <footer>Source: MoneyPuck game logs, <span class="season-label"></span> season, situations all/5on5/5on4/4on5. <span id="sk-row-count"></span> skater-games. Data courtesy of <a href="https://moneypuck.com" target="_blank" rel="noopener">MoneyPuck.com</a>.</footer>
+</div>
+</section>
+
+<script src="js/goalies.js"></script>
+<script src="js/skaters.js"></script>
+<script src="js/site.js"></script>
+</body>
+</html>
+
