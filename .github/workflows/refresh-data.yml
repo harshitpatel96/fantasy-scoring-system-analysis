@@ -1,0 +1,55 @@
+name: Refresh MoneyPuck data
+
+on:
+  schedule:
+    - cron: "23 9 2 * *" # 09:23 UTC on the 2nd of every month
+  workflow_dispatch:
+    inputs:
+      seasons:
+        description: "auto (current + missing seasons), current, all, or comma-separated start years like 2023,2024"
+        default: auto
+        required: false
+
+permissions:
+  contents: write
+  pages: write # to request a Pages rebuild after committing new data
+
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240 # the first run backfills every season since 2008-09
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build season data
+        run: python pipeline/build_data.py --seasons "${{ inputs.seasons || 'auto' }}"
+
+      - name: Commit changes
+        id: commit
+        run: |
+          git add data
+          if git diff --cached --quiet; then
+            echo "No data changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Refresh MoneyPuck data ($(date -u +%Y-%m-%d))"
+          git push
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      # Pages is set to "Deploy from a branch"; ask for a rebuild explicitly so the new data
+      # goes live even if the bot's push doesn't trigger one on its own.
+      - name: Request Pages rebuild
+        if: steps.commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST "repos/${{ github.repository }}/pages/builds"
