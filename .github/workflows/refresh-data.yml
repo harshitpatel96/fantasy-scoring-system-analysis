@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  pages: write # to request a Pages rebuild after committing new data
 
 concurrency:
   group: refresh-data
@@ -32,6 +33,7 @@ jobs:
         run: python pipeline/build_data.py --seasons "${{ inputs.seasons || 'auto' }}"
 
       - name: Commit changes
+        id: commit
         run: |
           git add data
           if git diff --cached --quiet; then
@@ -42,3 +44,12 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "Refresh MoneyPuck data ($(date -u +%Y-%m-%d))"
           git push
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      # Pages is set to "Deploy from a branch"; ask for a rebuild explicitly so the new data
+      # goes live even if the bot's push doesn't trigger one on its own.
+      - name: Request Pages rebuild
+        if: steps.commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST "repos/${{ github.repository }}/pages/builds"
